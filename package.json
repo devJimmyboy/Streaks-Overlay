@@ -1,0 +1,12 @@
+{
+  "name": "Streaks-Overlay",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/devJimmyboy/Streaks-Overlay.git",
+  "author": "Jimmyboy <devJimmyboy@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/gsap": "^3.0.0",
+    "@types/jquery": "^3.5.14"
+  }
+}
