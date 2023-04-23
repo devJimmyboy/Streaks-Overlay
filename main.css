@@ -2,21 +2,40 @@
 
 :root {
   --font-name: 'Roboto';
+  --streak-direction: column;
+  --text-color: #ffffff;
 }
-
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
 #world {
+  position: relative;
   color: #ffffff;
   font-size: 25px;
   font-family: var(--font-name, 'Comic Sans'), sans-serif;
   text-shadow: -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+}
+
+#main {
+  position: absolute;
 }
 
 #streaks {
   display: flex;
-  flex-direction: column;
+  flex-direction: var(--streak-direction, column);
   justify-content: center;
   align-items: start;
   gap: 10px;
+  left: 10px;
 }
 
 .streak {
@@ -25,10 +44,18 @@
   justify-content: start;
   align-items: center;
   gap: 5px;
+  font-weight: 500;
 }
 
 .streak-text > .streak-text-text {
-  color: #55ddff;
+  color: var(--text-color, #ffffff);
   margin-left: 1.5ch;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+img.emoji {
+  height: 1.25em;
+  width: 1.25em;
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.1em;
 }

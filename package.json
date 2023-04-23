@@ -1,5 +1,5 @@
 {
-  "name": "Streaks-Overlay",
+  "name": "streaks-overlay",
   "version": "1.0.0",
   "main": "index.js",
   "repository": "https://github.com/devJimmyboy/Streaks-Overlay.git",
@@ -7,6 +7,8 @@
   "license": "MIT",
   "devDependencies": {
     "@types/gsap": "^3.0.0",
-    "@types/jquery": "^3.5.14"
+    "@types/howler": "^2.2.7",
+    "@types/jquery": "^3.5.14",
+    "@types/twemoji": "^13.1.2"
   }
 }

@@ -1,29 +1,90 @@
 /// <reference types="jquery" />
 /// <reference types="gsap" />
+/// <reference types="twemoji"/>
+/// <reference types="howler"/>
+
+var chat = null
+
+const TIKTOK_ENDPOINT = 'https://tiktok-tts.weilnet.workers.dev'
 
 function log(...message) {
   if (debug) {
     console.log(...message)
   }
 }
+
+function error(...message) {
+  if (debug) {
+    console.error(...message)
+  }
+}
+
 const url = new URL(window.location.href)
 var channel = url.searchParams.get('channel')
+var stvObjectId = null
 let debug = url.searchParams.get('debug') === '1'
+window.AudioContext = window.AudioContext || window.webkitAudioContext
+var context = new AudioContext()
 
+function getSetting(setting, defaultValue) {
+  // get setting from local storage
+  let value = localStorage.getItem(setting)
+  try {
+    value = JSON.parse(value)
+  } catch (e) {
+    value = localStorage.getItem(setting)
+  }
+  if (value) return value
+  // get setting from url
+  else return url.searchParams.get(setting) || defaultValue
+}
+
+function setSetting(setting, value) {
+  config[setting] = value
+  localStorage.setItem(setting, JSON.stringify(value))
+}
 const config = {
-  streakEnabled: !!Number(url.searchParams.get('streakEnabled') || 1),
-  showEmoteEnabled: !!Number(url.searchParams.get('showEmoteEnabled') || 1),
-  showEmoteCooldown: Number(url.searchParams.get('showEmoteCooldown') || 6),
-  showEmoteSizeMultiplier: Number(url.searchParams.get('showEmoteSizeMultiplier') || 1),
-  minStreak: Number(url.searchParams.get('minStreak') || 5),
-  emoteLocation: Number(url.searchParams.get('emoteLocation') || 1),
-  emoteStreakEndingText: url.searchParams.get('emoteStreakText')?.replace(/(<([^>]+)>)/gi, '') ?? '{streak}x',
+  textColor: getSetting('textColor', '#55ccff'),
+  streakEnabled: !!Number(getSetting('streakEnabled', 1)),
+  showEmoteEnabled: !!Number(getSetting('showEmoteEnabled', 1)),
+  showEmoteCooldown: Number(getSetting('showEmoteCooldown', 6)),
+  showEmoteSizeMultiplier: Number(getSetting('showEmoteSizeMultiplier', 1)),
+  minStreak: Number(getSetting('minStreak', 5)),
+  emoteLocation: Number(getSetting('emoteLocation', 1)),
+  emoteStreakEndingText: getSetting('emoteStreakText', '{streak}x')?.replace(/(<([^>]+)>)/gi, ''),
+  tts: !!Number(getSetting('tts', 0)),
+  ttsVoice: getSetting('ttsVoice', 'Brian'),
   showEmoteCooldownRef: new Date(),
   streakCooldown: new Date().getTime(),
   emotes: [],
 }
 
+document.body.style.setProperty('--text-color', config.textColor)
+
 const streaksEl = $('#streaks')
+const main = $('#main')
+
+switch (config.emoteLocation) {
+  default:
+  case 1:
+    main.css('bottom', '35px')
+    main.css('left', '35px')
+    document.body.style.setProperty('--streak-direction', 'column-reverse')
+    break
+  case 2:
+    main.css('top', '35px')
+    main.css('left', '35px')
+    break
+  case 3:
+    main.css('bottom', '35px')
+    main.css('right', '35px')
+    document.body.style.setProperty('--streak-direction', 'column-reverse')
+    break
+  case 4:
+    main.css('top', '35px')
+    main.css('right', '35px')
+    break
+}
 
 /**
  * @type {{ streaks: Streak[] }}
@@ -48,8 +109,8 @@ function addStreak(streak) {
           target[prop] = value
           log('updated streak', streak)
           streak.timeout = setTimeout(() => {
-            streakProxy.streak = 0
-          }, 5000)
+            target.streak = 0
+          }, 10000)
         }
       } else {
         target[prop] = value
@@ -65,7 +126,7 @@ const getEmotes = async () => {
   const proxy = 'https://tpbcors.herokuapp.com/'
   log(config)
 
-  if (!channel) return $('#errors').html(`Invalid channel. Please enter a channel name in the URL. Example: https://api.roaringiron.com/emoteoverlay?channel=forsen`)
+  if (!channel) return $('#errors').html(`Invalid channel. Please enter a channel name in the URL. Example: https://overlays.jimmyboy.dev/Streaks-Overlay/?channel=forsen`)
 
   const twitchId = (
     await (
@@ -91,7 +152,7 @@ const getEmotes = async () => {
         }
       }
     })
-    .catch(console.error)
+    .catch(error)
 
   await (
     await fetch(proxy + 'https://api.frankerfacez.com/v1/set/global')
@@ -109,7 +170,7 @@ const getEmotes = async () => {
         }
       }
     })
-    .catch(console.error)
+    .catch(error)
 
   await (
     await fetch(proxy + 'https://api.betterttv.net/3/cached/users/twitch/' + twitchId)
@@ -129,7 +190,7 @@ const getEmotes = async () => {
         })
       }
     })
-    .catch(console.error)
+    .catch(error)
 
   await (
     await fetch(proxy + 'https://api.betterttv.net/3/cached/emotes/global')
@@ -143,7 +204,7 @@ const getEmotes = async () => {
         })
       }
     })
-    .catch(console.error)
+    .catch(error)
 
   await (
     await fetch(proxy + `https://api.7tv.app/v2/users/${channel}/emotes`)
@@ -157,7 +218,11 @@ const getEmotes = async () => {
         })
       }
     })
-    .catch(console.error)
+    .catch(error)
+
+  await (await fetch(proxy + `https://api.7tv.app/v2/users/${channel}`)).json().then((data) => {
+    stvObjectId = data.id
+  })
 
   await (
     await fetch(proxy + 'https://api.7tv.app/v2/emotes/global')
@@ -171,7 +236,7 @@ const getEmotes = async () => {
         })
       }
     })
-    .catch(console.error)
+    .catch(error)
 
   const successMessage = `Successfully loaded ${config.emotes.length} emotes for channel ${channel}`
 
@@ -216,8 +281,8 @@ const showEmote = (message, rawMessage) => {
 }
 
 const findEmotes = (message, rawMessage) => {
-  if (config.emotes.length === 0) return
-
+  // if (config.emotes.length === 0) return
+  state.streaks = state.streaks.filter((streak) => streak.streak > 0)
   const emoteUsedPos = rawMessage[4].startsWith('emotes=') ? 4 : rawMessage[5].startsWith('emote-only=') ? 6 : 5
   const emoteUsed = rawMessage[emoteUsedPos].split('emotes=').pop()
   const splitMessage = message.split(' ').filter((a) => !!a.length)
@@ -243,6 +308,18 @@ const findEmotes = (message, rawMessage) => {
   streakEvent(currentStreak)
 }
 
+const loadSound = async (url, type) => {
+  const audio = await fetch(url).then((response) => response.blob())
+  /**
+   * @type {HTMLAudioElement}
+   */
+  const audioEl = document.createElement('audio')
+  audioEl.src = URL.createObjectURL(audio)
+  audioEl.load()
+
+  return audioEl
+}
+
 /**
  *
  * @param {Streak} currentStreak
@@ -250,7 +327,7 @@ const findEmotes = (message, rawMessage) => {
 const streakEvent = (currentStreak) => {
   if (currentStreak.streak >= config.minStreak && config.streakEnabled) {
     log('Streak event', currentStreak)
-    $('#main').css('position', 'absolute')
+
     let streak = $(`.streak[data-text="${currentStreak.emote.code}"]`)
     if (streak.length === 0) {
       streak = $(`<div class="streak" data-text="${currentStreak.emote.code}">
@@ -265,25 +342,6 @@ const streakEvent = (currentStreak) => {
     let streakText = streak.children('.streak-text')
     let streakImg = streak.children('img')
 
-    switch (config.emoteLocation) {
-      default:
-      case 1:
-        $('#main').css('bottom', '35')
-        $('#main').css('left', '35')
-        break
-      case 2:
-        $('#main').css('top', '35')
-        $('#main').css('left', '35')
-        break
-      case 3:
-        $('#main').css('bottom', '35')
-        $('#main').css('right', '35')
-        break
-      case 4:
-        $('#main').css('top', '35')
-        $('#main').css('right', '35')
-        break
-    }
     if (currentStreak.emote.url) {
       streakImg.attr('src', currentStreak.emote.url)
       streakText.text(config.emoteStreakEndingText.replace('{streak}', currentStreak.streak))
@@ -291,12 +349,29 @@ const streakEvent = (currentStreak) => {
       streakText.text(config.emoteStreakEndingText.replace('{streak}', currentStreak.streak))
       streakText.append($(`<span class="streak-text-text">${currentStreak.emote.code}</span>`))
     }
+    twemoji.parse(streak.get(0))
 
     gsap.to(streak, {
       scaleX: 1.2,
       scaleY: 1.2,
       duration: 0.15,
-      onComplete: () => gsap.to(streak, { duration: 0.15, scaleX: 1, scaleY: 1 }),
+      onComplete: () =>
+        gsap.to(streak, {
+          duration: 0.15,
+          scaleX: 1,
+          scaleY: 1,
+          onComplete: async (strek) => {
+            if (strek.spoke || !config.tts) return
+
+            const audio = await getTts(strek.emote.code)
+            currentStreak.spoke = true
+            await audio.play()
+            audio.onended = function (e) {
+              URL.revokeObjectURL(this.src)
+            }
+          },
+          onCompleteParams: [currentStreak],
+        }),
     })
 
     currentStreak.cooldown = Date.now()
@@ -345,10 +420,104 @@ const showEmoteEvent = (url) => {
   }
 }
 
+function changeSettings(msg, fullMsg) {
+  const splitMsg = msg.split(' ')
+  const setting = splitMsg[0]
+  let value = splitMsg[1]
+  try {
+    value = Number(value)
+  } catch (e) {
+    value = splitMsg[1]
+  }
+
+  if (setting === 'streak') {
+    config.streakEnabled = value === 'true'
+  } else if (setting === 'tts') {
+    setSetting('tts', value === 'true' ? 1 : 0)
+  } else if (setting === 'ttsVoice') {
+    setSetting('ttsVoice', value.trim())
+  } else if (setting === 'showEmote') {
+    setSetting('showEmote', value === 'true')
+  } else if (setting === 'showEmoteSizeMultiplier') {
+    setSetting('showEmoteSizeMultiplier', value)
+  } else if (setting === 'showEmoteCooldown') {
+    setSetting('showEmoteCooldown', value)
+  } else if (setting === 'showEmoteCooldownRef') {
+    setSetting('showEmoteCooldownRef', value)
+  } else if (setting === 'emoteStreakEndingText') {
+    setSetting('emoteStreakEndingText', value)
+  } else if (setting === 'minStreak') {
+    setSetting('minStreak', value)
+  } else if (setting === 'emoteLocation') {
+    setSetting('emoteLocation', value)
+    switch (config.emoteLocation) {
+      default:
+      case 1:
+        main.css('bottom', '35px')
+        main.css('left', '35px')
+        document.body.style.setProperty('--streak-direction', 'column-reverse')
+        break
+      case 2:
+        main.css('top', '35px')
+        main.css('left', '35px')
+        break
+      case 3:
+        main.css('bottom', '35px')
+        main.css('right', '35px')
+        document.body.style.setProperty('--streak-direction', 'column-reverse')
+        break
+      case 4:
+        main.css('top', '35px')
+        main.css('right', '35px')
+        break
+    }
+  }
+}
+
+async function getTts(text) {
+  const encodedText = encodeURIComponent(text)
+  const isTiktok = config.ttsVoice.startsWith('tiktok:')
+  const voice = isTiktok ? config.ttsVoice.replace('tiktok:', '') : config.ttsVoice
+  let audio = ''
+  if (isTiktok) {
+    audio = await fetch(`${TIKTOK_ENDPOINT}/api/generation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: text,
+        voice,
+      }),
+    })
+      .then((res) => res.json())
+      .then((res) => res.data)
+  } else {
+    const url = `https://api.streamelements.com/kappa/v2/speech?voice=${config.ttsVoice}&text=` + encodeURIComponent(text)
+    audio = await fetch(url).then((res) => res.blob())
+  }
+  const audioEl = new Audio()
+  if (audio instanceof Blob) {
+    audioEl.src = URL.createObjectURL(audio)
+  }
+  audioEl.src = `data:audio/mpeg;base64,${audio}`
+
+  return audioEl
+}
+
 var connect = () => {
-  const chat = new WebSocket('wss://irc-ws.chat.twitch.tv')
+  connectChat()
+  initEventApi()
+}
+
+var connectChat = () => {
+  if (!WebSocket) {
+    $('#errors').text('WebSocket is not supported by your browser.')
+    return
+  }
+  chat = new WebSocket('wss://irc-ws.chat.twitch.tv')
+  initEventApi()
   const timeout = setTimeout(() => {
-    chat.close()
     chat.connect()
   }, 10000)
 
@@ -363,8 +532,8 @@ var connect = () => {
   }
 
   chat.onerror = function () {
-    console.error('There was an error.. disconnected from the IRC')
-    chat.close()
+    error('There was an error.. disconnected from the IRC')
+
     chat.connect()
   }
 
@@ -373,12 +542,18 @@ var connect = () => {
 
 function onMessage(event) {
   const fullMessage = event.data.split(/\r\n/)[0].split(`;`)
+  if (fullMessage.includes(`USERNOTICE #${channel}`)) return
   if (fullMessage.length > 12) {
     const parsedMessage = fullMessage[fullMessage.length - 1].split(`${channel} :`).pop() // gets the raw message
+
+    /**
+     * @type {string}
+     */
     let message = parsedMessage.split(' ').includes('ACTION') ? parsedMessage.split('ACTION ').pop().split('')[0] : parsedMessage // checks for the /me ACTION usage and gets the specific message
-    if (message.toLowerCase().startsWith('!showemote') || message.toLowerCase().startsWith('!#showemote')) {
-      showEmote(message, fullMessage)
+    if (message.toLowerCase().startsWith('!setting') || message.toLowerCase().startsWith('!#setting')) {
+      changeSettings(message.split(' ').slice(1).join(' '), fullMessage)
     }
+    if (message.toLowerCase().startsWith('http')) return
     findEmotes(message, fullMessage)
   }
   if (fullMessage.length == 1 && fullMessage[0].startsWith('PING')) {
@@ -386,3 +561,83 @@ function onMessage(event) {
     chat.send('PONG')
   }
 }
+
+function initEventApi() {
+  if (!WebSocket) {
+    $('#errors').text('WebSocket is not supported by your browser.')
+    return
+  }
+  const socket = new WebSocket('wss://events.7tv.io/v3')
+  const timeout = setTimeout(() => {
+    socket.connect()
+  }, 10000)
+  socket.onopen = () => {
+    clearTimeout(timeout)
+    log('Connected to 7TV Events')
+    new Promise((resolve) => {
+      const interval = setInterval(() => {
+        if (stvObjectId) resolve(clearInterval(interval))
+      }, 1000)
+    }).then(() => {
+      log('subscribing to set updates from', stvObjectId)
+      socket.send(
+        JSON.stringify({
+          op: 35,
+          d: {
+            type: 'user.*',
+            condition: {
+              object_id: stvObjectId,
+            },
+          },
+        })
+      )
+    })
+  }
+  socket.onerror = () => {
+    error('There was an error.. disconnected from the Events')
+
+    socket.connect()
+  }
+  socket.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    switch (data.op) {
+      case 0:
+        /**
+         * @type {DispatchEvent}
+         */
+        let d = data.d
+        log(d)
+        break
+      case 1:
+        log('Hello received with heartbeat interval of ' + data.d.heartbeat_interval / 1000 + ' seconds')
+        break
+      case 2:
+        log('Heartbeat received')
+        break
+    }
+  }
+}
+/**
+ * @typedef {"system.announcement"|"emote.create"|"emote.update"|"emote.delete"|"emote_set.create"|"emote_set.update"|"emote_set.delete"} EventType
+ * @typedef {{
+ *  key: string;
+ *  index: number;
+ *  nested: boolean;
+ *  old_value: Object | null;
+ *  value: Object | null;
+ * }} ChangeField
+ * @typedef {{
+ *  id: string;
+ *  kind: number;
+ *  actor: Object;
+ *  added: ChangeField[];
+ *  removed: ChangeField[];
+ *  updated: ChangeField[];
+ *  pushed: ChangeField[];
+ *  pulled: ChangeField[];
+ * }} ChangeMap
+ * @typedef {{
+ *  type: EventType;
+ *  body: ChangeMap;
+ * }} DispatchEvent
+ */
