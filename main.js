@@ -19,14 +19,23 @@ function error(...message) {
   }
 }
 
+/**
+ * @type {HTMLAudioElement[]}
+ */
+const audioQueue = []
+
 const url = new URL(window.location.href)
 var channel = url.searchParams.get('channel')
+// make a regex to identify any url
+const urlRegex = /((https?:\/\/)?[\w-]+(\.[\w-]+)+\.?(:\d+)?(\/\S*)?)/g
+
 var stvObjectId = null
 let debug = url.searchParams.get('debug') === '1'
 window.AudioContext = window.AudioContext || window.webkitAudioContext
 var context = new AudioContext()
 
 function getSetting(setting, defaultValue) {
+  log('getting setting', setting, defaultValue, 'from url')
   // get setting from local storage
   let value = localStorage.getItem(setting)
   try {
@@ -34,9 +43,10 @@ function getSetting(setting, defaultValue) {
   } catch (e) {
     value = localStorage.getItem(setting)
   }
+  if (url.searchParams.get(setting)) value = url.searchParams.get(setting)
   if (value) return value
   // get setting from url
-  else return url.searchParams.get(setting) || defaultValue
+  else return defaultValue
 }
 
 function setSetting(setting, value) {
@@ -54,6 +64,7 @@ const config = {
   emoteStreakEndingText: getSetting('emoteStreakText', '{streak}x')?.replace(/(<([^>]+)>)/gi, ''),
   tts: !!Number(getSetting('tts', 0)),
   ttsVoice: getSetting('ttsVoice', 'Brian'),
+  streakText: Number(getSetting('streakText', 1)),
   showEmoteCooldownRef: new Date(),
   streakCooldown: new Date().getTime(),
   emotes: [],
@@ -93,14 +104,18 @@ var state = {
   streaks: [],
 }
 /**
- * @typedef {{ emote: {code: string; url: string;}; streak: number; cooldown: number }} Streak
+ * @typedef {{ emote: {code: string; url: string;}; streak: number; cooldown: number; timeout?: number | null }} Streak
  * @param {Streak} streak
  */
 function addStreak(streak) {
+  if (config.streakText === 0 && streak.emote.url === null) return
   const streakProxy = new Proxy(streak, {
     set: (target, prop, value) => {
       if (prop === 'streak') {
-        if (!!target.timeout) clearTimeout(target.timeout)
+        if (!!target.timeout) {
+          clearTimeout(target.timeout)
+          target.timeout = null
+        }
         if (value === 0) {
           state.streaks = state.streaks.filter((s) => s.emote.code !== target.emote.code)
 
@@ -109,7 +124,7 @@ function addStreak(streak) {
           target[prop] = value
           log('updated streak', streak)
           streak.timeout = setTimeout(() => {
-            target.streak = 0
+            streakProxy.streak = 0
           }, 10000)
         }
       } else {
@@ -118,6 +133,10 @@ function addStreak(streak) {
       return true
     },
   })
+  streakProxy.streak = 1
+  streakProxy.timeout = setTimeout(() => {
+    streakProxy.streak = 0
+  }, 10000)
 
   state.streaks.push(streakProxy)
 }
@@ -207,24 +226,6 @@ const getEmotes = async () => {
     .catch(error)
 
   await (
-    await fetch(proxy + `https://api.7tv.app/v2/users/${channel}/emotes`)
-  )
-    .json()
-    .then((data) => {
-      for (let i = 0; i < data.length; i++) {
-        config.emotes.push({
-          name: data[i].name,
-          url: data[i].urls[1][1],
-        })
-      }
-    })
-    .catch(error)
-
-  await (await fetch(proxy + `https://api.7tv.app/v2/users/${channel}`)).json().then((data) => {
-    stvObjectId = data.id
-  })
-
-  await (
     await fetch(proxy + 'https://api.7tv.app/v2/emotes/global')
   )
     .json()
@@ -236,7 +237,23 @@ const getEmotes = async () => {
         })
       }
     })
-    .catch(error)
+    .catch(console.error)
+
+  await (
+    await fetch(proxy + 'https://7tv.io/v3/users/twitch/' + twitchId)
+  )
+    .json()
+    .then((data) => {
+      // stvObjectId
+      const emoteSet = data['emote_set']['emotes']
+      for (let i = 0; i < emoteSet.length; i++) {
+        config.emotes.push({
+          name: emoteSet[i].name,
+          url: 'https:' + emoteSet[i].data.host.url + '/' + emoteSet[i].data.host.files[2].name,
+        })
+      }
+    })
+    .catch(console.error)
 
   const successMessage = `Successfully loaded ${config.emotes.length} emotes for channel ${channel}`
 
@@ -287,10 +304,10 @@ const findEmotes = (message, rawMessage) => {
   const emoteUsed = rawMessage[emoteUsedPos].split('emotes=').pop()
   const splitMessage = message.split(' ').filter((a) => !!a.length)
   let currentStreak = state.streaks.find((s) => splitMessage.includes(s.emote.code) || message === s.emote.code)
-  if (currentStreak) currentStreak.streak++
+  if (currentStreak) currentStreak.streak = currentStreak.streak + 1
   else if (rawMessage[emoteUsedPos].startsWith('emotes=') && emoteUsed.length > 1) {
     currentStreak = {}
-    currentStreak.streak = 1
+    currentStreak.streak = 0
     currentStreak.emote = {
       code: message.substring(parseInt(emoteUsed.split(':')[1].split('-')[0]), parseInt(emoteUsed.split(':')[1].split('-')[1]) + 1),
     }
@@ -298,8 +315,9 @@ const findEmotes = (message, rawMessage) => {
     addStreak(currentStreak)
     log('created streak with', currentStreak)
   } else {
+    if (urlRegex.test(message)) return
     currentStreak = {}
-    currentStreak.streak = 1
+    currentStreak.streak = 0
     currentStreak.emote = { code: findInMessage(splitMessage) }
     currentStreak.emote.url = findUrlInEmotes(currentStreak.emote.code)
     if (currentStreak.emote.code) addStreak(currentStreak)
@@ -325,6 +343,8 @@ const loadSound = async (url, type) => {
  * @param {Streak} currentStreak
  */
 const streakEvent = (currentStreak) => {
+  if (config.streakText === 0 && currentStreak.emote.url === null) return
+
   if (currentStreak.streak >= config.minStreak && config.streakEnabled) {
     log('Streak event', currentStreak)
 
@@ -364,10 +384,17 @@ const streakEvent = (currentStreak) => {
             if (strek.spoke || !config.tts) return
 
             const audio = await getTts(strek.emote.code)
+            if (!audio) return
             currentStreak.spoke = true
-            await audio.play()
+            if (audioQueue.length === 0) audio.play()
+            else if (audioQueue[0].paused) {
+              audioQueue[0].play()
+            }
+            audioQueue.push(audio)
             audio.onended = function (e) {
+              audioQueue.shift()
               URL.revokeObjectURL(this.src)
+              if (audioQueue.length > 0) audioQueue[0].play()
             }
           },
           onCompleteParams: [currentStreak],
@@ -376,7 +403,7 @@ const streakEvent = (currentStreak) => {
 
     currentStreak.cooldown = Date.now()
     setInterval(() => {
-      if ((Date.now() - currentStreak.cooldown) / 1000 > 4) {
+      if ((Date.now() - currentStreak.cooldown) / 1000 > 8) {
         currentStreak.cooldown = Date.now()
         gsap.to(streak, {
           scaleX: 0,
@@ -429,13 +456,16 @@ function changeSettings(msg, fullMsg) {
   } catch (e) {
     value = splitMsg[1]
   }
+  if (!value || isNaN(value)) {
+    value = splitMsg[1]
+  }
 
   if (setting === 'streak') {
     config.streakEnabled = value === 'true'
   } else if (setting === 'tts') {
     setSetting('tts', value === 'true' ? 1 : 0)
   } else if (setting === 'ttsVoice') {
-    setSetting('ttsVoice', value.trim())
+    setSetting('ttsVoice', value)
   } else if (setting === 'showEmote') {
     setSetting('showEmote', value === 'true')
   } else if (setting === 'showEmoteSizeMultiplier') {
@@ -496,6 +526,7 @@ async function getTts(text) {
     const url = `https://api.streamelements.com/kappa/v2/speech?voice=${config.ttsVoice}&text=` + encodeURIComponent(text)
     audio = await fetch(url).then((res) => res.blob())
   }
+  if (!audio) return null
   const audioEl = new Audio()
   if (audio instanceof Blob) {
     audioEl.src = URL.createObjectURL(audio)
