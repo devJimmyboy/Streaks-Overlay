@@ -63,14 +63,18 @@ const config = {
   emoteLocation: Number(getSetting('emoteLocation', 1)),
   emoteStreakEndingText: getSetting('emoteStreakText', '{streak}x')?.replace(/(<([^>]+)>)/gi, ''),
   tts: !!Number(getSetting('tts', 0)),
-  ttsVoice: getSetting('ttsVoice', 'Brian'),
+  ttsVoice: getSetting('ttsVoice', 'tiktok:en_us_ghostface'),
   streakText: Number(getSetting('streakText', 1)),
   showEmoteCooldownRef: new Date(),
   streakCooldown: new Date().getTime(),
   emotes: [],
+  font: Number(getSetting('font', 0)),
+  direction: Number(getSetting('direction', 0)),
 }
 
 document.body.style.setProperty('--text-color', config.textColor)
+document.body.style.setProperty('--font-name', config.font == 1 ? 'Roboto' : "'Press Start 2P'")
+document.body.style.setProperty('--streak-direction', config.direction == 1 ? 'row' : 'row-reverse')
 
 const streaksEl = $('#streaks')
 const main = $('#main')
@@ -80,7 +84,7 @@ switch (config.emoteLocation) {
   case 1:
     main.css('bottom', '35px')
     main.css('left', '35px')
-    document.body.style.setProperty('--streak-direction', 'column-reverse')
+    document.body.style.setProperty('--streaks-direction', 'column-reverse')
     break
   case 2:
     main.css('top', '35px')
@@ -89,7 +93,7 @@ switch (config.emoteLocation) {
   case 3:
     main.css('bottom', '35px')
     main.css('right', '35px')
-    document.body.style.setProperty('--streak-direction', 'column-reverse')
+    document.body.style.setProperty('--streaks-direction', 'column-reverse')
     break
   case 4:
     main.css('top', '35px')
@@ -354,7 +358,7 @@ const streakEvent = (currentStreak) => {
         <span class="streak-text">${currentStreak.streak}</span>
       </div>`)
       if (currentStreak.emote.url) {
-        streak.append($(`<img src="${currentStreak.emote.url}" alt="${currentStreak.emote.code}" />`))
+        streak.append($(`<img src="${currentStreak.emote.url}" alt="${currentStreak.emote.code}" class="emote" />`))
       }
       streak.prependTo(streaksEl)
     }
@@ -367,7 +371,7 @@ const streakEvent = (currentStreak) => {
       streakText.text(config.emoteStreakEndingText.replace('{streak}', currentStreak.streak))
     } else {
       streakText.text(config.emoteStreakEndingText.replace('{streak}', currentStreak.streak))
-      streakText.append($(`<span class="streak-text-text">${currentStreak.emote.code}</span>`))
+      streak.append($(`<span class="streak-text-text">${currentStreak.emote.code}</span>`))
     }
     twemoji.parse(streak.get(0))
 

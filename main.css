@@ -1,8 +1,9 @@
-@import url(https://fonts.googleapis.com/css?family=Roboto:100,100italic,300,300italic,regular,italic,500,500italic,700,700italic,900,900italic);
-
+@import url('https://fonts.googleapis.com/css?family=Roboto:100,100italic,300,300italic,regular,italic,500,500italic,700,700italic,900,900italic');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 :root {
   --font-name: 'Roboto';
-  --streak-direction: column;
+  --streak-direction: row;
+  --streaks-direction: column;
   --text-color: #ffffff;
 }
 html,
@@ -31,7 +32,7 @@ body {
 
 #streaks {
   display: flex;
-  flex-direction: var(--streak-direction, column);
+  flex-direction: var(--streaks-direction, column);
   justify-content: center;
   align-items: start;
   gap: 10px;
@@ -40,16 +41,16 @@ body {
 
 .streak {
   display: flex;
-  flex-direction: row;
+  flex-direction: var(--streak-direction, row);
   justify-content: start;
   align-items: center;
-  gap: 5px;
+  gap: 10px;
   font-weight: 500;
 }
 
-.streak-text > .streak-text-text {
+.streak > .streak-text-text {
   color: var(--text-color, #ffffff);
-  margin-left: 1.5ch;
+  /* margin-left: 1.5ch; */
   font-weight: 700;
 }
 
@@ -58,4 +59,10 @@ img.emoji {
   width: 1.25em;
   margin: 0 0.05em 0 0.1em;
   vertical-align: -0.1em;
+}
+
+img.emote {
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.1em;
+  filter: drop-shadow(2px 2px 0em #000);
 }
